@@ -291,9 +291,9 @@ dependencies {
     // reads 16384-byte pages and pageSizeCompat=0 with it, and
     // tools/check_16k_pages.py passes its libconscrypt_jni.so; paired and
     // connected through it on the Honor from a fresh setup.
-    implementation("org.conscrypt:conscrypt-android:2.9.0")
+    implementation("org.conscrypt:conscrypt-android:2.10.0")
 
-    implementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    implementation(platform("androidx.compose:compose-bom:2026.11.01"))
     implementation("androidx.compose.material3:material3")
     // Play and Share glyphs for the recordings list. The -core set, not
     // -extended: extended is thousands of vectors for the two we use.
@@ -352,7 +352,7 @@ dependencies {
     testImplementation("org.robolectric:robolectric:4.18")
     testImplementation("io.github.takahirom.roborazzi:roborazzi:1.79.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.79.0")
-    testImplementation(platform("androidx.compose:compose-bom:2026.08.00"))
+    testImplementation(platform("androidx.compose:compose-bom:2026.11.01"))
     testImplementation("androidx.compose.ui:ui-test-junit4")
     // WorkManager's test driver, for the keep-alive's and the USB watch's
     // doWork and for what each trigger enqueues: an in-process WorkManager
