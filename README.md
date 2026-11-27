@@ -24,6 +24,19 @@ The base recorder still contains the upstream UI cut: the three looks, the
 recordings library and the player. Nothing on the assistant call path depends
 on that work.
 
+## Download
+
+The [1.9 arm64 preview](https://github.com/AydenForCybersec/jemrec-receptionist/releases/tag/preview-arm64-1.9)
+has a prebuilt debug APK:
+
+- [jemrec-receptionist-1.9-arm64-debug.apk](https://github.com/AydenForCybersec/jemrec-receptionist/releases/download/preview-arm64-1.9/jemrec-receptionist-1.9-arm64-debug.apk)
+- [SHA-256 checksum](https://github.com/AydenForCybersec/jemrec-receptionist/releases/download/preview-arm64-1.9/jemrec-receptionist-1.9-arm64-debug.apk.sha256)
+
+It is debug-signed and built from commit `9a94834`. It contains `arm64-v8a`
+and `armeabi-v7a` libraries, not x86. Android 12 or newer. Uninstall the
+official JemRec or any differently signed fork before installing. This is the
+same experimental build described below.
+
 ## What a call does
 
 1. JemRec answers a call you did not take, mutes your microphone and opens an
