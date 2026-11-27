@@ -130,6 +130,7 @@ class CallTracker : InCallService() {
         return AnsweringMachine.Ringing(
             enabled = AnsweringMachine.enabled(context),
             greeting = Greeting.present(context),
+            assistant = true,
             recorderOn = RecorderSwitch.isOn(context),
             trackingOn = CallTracking.enabled(context),
             otherCalls = others,

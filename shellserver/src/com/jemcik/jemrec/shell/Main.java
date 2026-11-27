@@ -214,6 +214,20 @@ public final class Main {
     static final long STARTED_AT = System.currentTimeMillis();
 
     static final String APP_PACKAGE = "com.jemcik.jemrec";
+
+    /**
+     * The AI service the loopback link admits without a token, by uid: the
+     * Termux app, unless the environment names another package (a fork of
+     * Termux, or a test app). Not installed means no AI link, and nothing
+     * else: the answering machine still works.
+     */
+    static final String AI_PACKAGE = aiPackage();
+
+    private static String aiPackage() {
+        String named = System.getenv("JEMREC_AI_PACKAGE");
+        return named == null || named.trim().isEmpty() ? "com.termux" : named.trim();
+    }
+
     private static final String TOKEN_ENV = "JEMREC_TOKEN";
 
     /**

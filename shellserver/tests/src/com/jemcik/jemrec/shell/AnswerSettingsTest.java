@@ -42,6 +42,18 @@ public class AnswerSettingsTest {
     }
 
     @Test
+    public void readsTheAssistantMode() {
+        AnswerSettings s = AnswerSettings.parse("1,120,music,ai");
+        assertTrue(s.on);
+        assertTrue(s.ai);
+        assertEquals(120, s.maxMessageSeconds);
+        assertEquals("1,120,music,ai", s.wire());
+        assertFalse(AnswerSettings.parse("1,60,music").ai);
+        assertSame(AnswerSettings.OFF, AnswerSettings.parse("1,60,music,voicemail"));
+        assertSame(AnswerSettings.OFF, AnswerSettings.parse("1,60,music,ai,extra"));
+    }
+
+    @Test
     public void tenSecondsAndTenMinutesAreTheLimitsAndBothAreAllowed() {
         assertEquals(10, AnswerSettings.parse("1,10,music").maxMessageSeconds);
         assertEquals(600, AnswerSettings.parse("1,600,music").maxMessageSeconds);

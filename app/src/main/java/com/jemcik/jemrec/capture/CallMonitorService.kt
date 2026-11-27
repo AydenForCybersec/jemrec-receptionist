@@ -216,6 +216,17 @@ class CallMonitorService : Service() {
     @Volatile
     private var warningOnly = false
 
+    /** The assistant has the call up (the recorder's AI_STARTED), and this
+     *  service holds itself for it: no recording, no prompt, its own notice
+     *  from AI_STARTED to AI_ENDED. */
+    @Volatile
+    private var assistantUp = false
+
+    /** The AI call's monitor socket: the caller's PCM and the assistant's
+     *  STATE, TRANSCRIPT and EVENT lines, for the notice and the screen. */
+    @Volatile
+    private var aiMonitor: AiMonitor? = null
+
     /** That warning's job: the service is not idle until it is done. */
     @Volatile
     private var warningJob: Job? = null
@@ -413,6 +424,9 @@ class CallMonitorService : Service() {
         // The same for the daemon's background-kill wake, which without this
         // fell through to "Call in progress" with no call at all.
         if (intent?.action == ACTION_BACKGROUND_KILLED && fromDaemon) warningOnly = true
+        // Before the first post, so the notification says the assistant has
+        // the call rather than flashing "Call in progress" first.
+        if (intent?.action == ACTION_AI_STARTED && fromDaemon) assistantUp = true
         // Owed within seconds to a startForegroundService: the recorder's wakes
         // and the prompt's. A plain start - the app's stop(), or another app's
         // - owes nothing, and Android may refuse it: the app 20 s off the
@@ -430,6 +444,71 @@ class CallMonitorService : Service() {
             dispatch(intent, fromDaemon)
         }
         return START_NOT_STICKY
+    }
+
+    /** The assistant has the call: hold this service, say so, and open the
+     *  monitor the notice and the live screen read. */
+    private fun onAssistantStarted() {
+        standDown.holding { assistantUp = true }
+        // A wake come twice in one call must not wipe the transcript and
+        // open a second monitor.
+        if (aiMonitor != null) {
+            runCatching { startForegroundCompat() }
+            return
+        }
+        AiLive.begin()
+        val monitor = AiMonitor(this) { line ->
+            AiLive.text(line)
+            // The notice is the report of each decision; the screen reads
+            // AiLive directly. Only a text line posts: PCM is not news.
+            main.post { if (assistantUp) runCatching { startForegroundCompat() } }
+        }
+        monitor.start()
+        aiMonitor = monitor
+        runCatching { startForegroundCompat() }
+            .onFailure { Log.i(TAG, "monitor: assistant notice not posted: ${it.javaClass.simpleName}") }
+    }
+
+    /** The assistant's call is over, or the user took it: nothing of this
+     *  service's is left for it, and the transcript stays for the report. */
+    private fun onAssistantEnded() {
+        val wasUp = AiLive.state.value.up
+        standDown.holding { assistantUp = false }
+        AiLive.end()
+        aiMonitor?.stop()
+        aiMonitor = null
+        if (wasUp) postAiSummary()
+        finishIfIdle()
+    }
+
+    /** The call's short report, after the ongoing notice goes: how it ended
+     *  and how many times the caller spoke. Tapping opens the transcript. */
+    private fun postAiSummary() {
+        val live = AiLive.state.value
+        if (live.transcript.isEmpty()) return
+        val turns = live.transcript.count { it.who == "caller" }
+        val text = when {
+            live.endedReason != null && turns > 0 ->
+                "Ended: ${live.endedReason}. $turns caller ${if (turns == 1) "turn" else "turns"}."
+            live.endedReason != null -> "Ended: ${live.endedReason}."
+            turns > 0 -> "$turns caller ${if (turns == 1) "turn" else "turns"}."
+            else -> "The call is over."
+        }
+        val tap = PendingIntent.getActivity(
+            this, AI_SUMMARY_REQUEST,
+            DeepLink.intent(this, DeepLink.Kind.AI_MONITOR),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notice = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle("AI call ended")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(tap)
+            .setAutoCancel(true)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .build()
+        runCatching { getSystemService(NotificationManager::class.java).notify(AI_SUMMARY_ID, notice) }
+            .onFailure { Log.i(TAG, "monitor: the call's report was not posted: ${it.javaClass.simpleName}") }
     }
 
     /** What a start asks for, [fromDaemon] or not (see onStartCommand). */
@@ -462,7 +541,8 @@ class CallMonitorService : Service() {
             // fetches the finished file to save. It is no longer on the audio
             // path, so a freeze here cannot cost a single packet.
             ACTION_CALL_STARTED, ACTION_CALL_ENDED, ACTION_STOP, ACTION_MESSAGE_STARTED, ACTION_MESSAGE_TAKEN,
-            ACTION_CABLE, ACTION_BACKGROUND_KILLED, ACTION_RECORDING_STOPPED, ACTION_RECORDING_BACK -> {
+            ACTION_CABLE, ACTION_BACKGROUND_KILLED, ACTION_RECORDING_STOPPED, ACTION_RECORDING_BACK,
+            ACTION_AI_STARTED, ACTION_AI_ENDED -> {
                 if (!fromDaemon) {
                     Log.w(TAG, "monitor: ${intent.action} with a bad token, ignoring")
                     finishIfIdle()
@@ -488,6 +568,8 @@ class CallMonitorService : Service() {
                     ACTION_MESSAGE_TAKEN -> onMessageTaken()
                     ACTION_RECORDING_STOPPED -> onRecordingStopped(intent.getBooleanExtra(EXTRA_FOR_GOOD, false))
                     ACTION_RECORDING_BACK -> onRecordingBack()
+                    ACTION_AI_STARTED -> onAssistantStarted()
+                    ACTION_AI_ENDED -> onAssistantEnded()
                     ACTION_CABLE -> watchCable(intent.getStringExtra(EXTRA_CABLE))
                     // The daemon saw this phone kill JemRec in the background.
                     // Warn once (BackgroundKill dedups against the app's own
@@ -722,9 +804,12 @@ class CallMonitorService : Service() {
         runCatching { getSystemService(AudioManager::class.java).removeOnModeChangedListener(modeChanged) }
         main.removeCallbacks(again)
         button.close()
+        aiMonitor?.stop()
+        aiMonitor = null
         running = false
         heldNow = emptySet()
         messageSince = 0L
+        assistantUp = false
         scope.cancel()
         saves.clear()
         super.onDestroy()
@@ -1431,21 +1516,30 @@ class CallMonitorService : Service() {
      */
     private fun finishIfIdle(ending: Job? = null): Boolean {
         val start = standDown.holding {
-            lastStart.takeIf { standDown.idle(ending, { callInProgress }) { listOf(cableWatch, warningJob) + saves } }
+            lastStart.takeIf {
+                standDown.idle(ending, { callInProgress || assistantUp }) {
+                    listOf(cableWatch, warningJob) + saves
+                }
+            }
         } ?: return false
         return stopSelfResult(start)
     }
 
     private fun startForegroundCompat() {
+        val live = AiLive.state.value
+        // The assistant's notice opens the live screen, not home: that is
+        // where the call's transcript and Talk to them are.
         val tap = PendingIntent.getActivity(
-            this, 0, DeepLink.home(this),
-            PendingIntent.FLAG_IMMUTABLE,
+            this, 0,
+            if (assistantUp) DeepLink.intent(this, DeepLink.Kind.AI_MONITOR) else DeepLink.home(this),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // Each field read once: the save's coroutine writes some of them too.
         val notice = CallNotice.of(
             CallNotice.State(
                 callUp = callInProgress,
                 recording = recordingNow,
+                aiUp = assistantUp,
                 notRecording = notRecording,
                 stopped = stopped,
                 messageTicket = messageTicket,
@@ -1453,6 +1547,8 @@ class CallMonitorService : Service() {
                 checkingRecorder = checkingRecorder,
                 warningOnly = warningOnly,
                 recordTicket = RecordPrompt.ticket(this),
+                aiWords = if (assistantUp) live.phaseWords else null,
+                aiLast = if (assistantUp) live.lastCallerLine else null,
             ),
         )
         val builder = Notification.Builder(this, CHANNEL_ID)
@@ -1460,6 +1556,7 @@ class CallMonitorService : Service() {
             .setContentText(notice.text)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(tap)
+            .setSubText(notice.subText)
             .setOngoing(true)
             // "An indication of running background service"
             // (Notification.CATEGORY_SERVICE): what this is, for the shade.
@@ -1594,7 +1691,7 @@ class CallMonitorService : Service() {
         LEGACY_CHANNEL_IDS.forEach { runCatching { manager.deleteNotificationChannel(it) } }
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Call recording",
+            "Calls",
             // LOW: permanently visible, so it must never make a sound.
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
@@ -1626,6 +1723,10 @@ class CallMonitorService : Service() {
         private val LEGACY_CHANNEL_IDS =
             listOf("jemrec.monitor", "jemrec.ask", "jemrec.pairing")
         private const val NOTIFICATION_ID = 1
+        /** The short report after an AI call; not ongoing. 4 is free: 1 is
+         *  this service, 2 pairing, 3 the Record prompt. */
+        private const val AI_SUMMARY_ID = 4
+        private const val AI_SUMMARY_REQUEST = 4
 
         /** Posts closer together than this are a pair, and the one more comes
          *  this long after ([again]): alone, long past a queue that shows a
@@ -1665,6 +1766,12 @@ class CallMonitorService : Service() {
         const val ACTION_RECORDING_STOPPED = "com.jemcik.jemrec.RECORDING_STOPPED"
         const val ACTION_RECORDING_BACK = "com.jemcik.jemrec.RECORDING_BACK"
         const val EXTRA_FOR_GOOD = "for_good"
+
+        /** Sent by the daemon when the assistant has the call, and when its
+         *  call is over or the user took it. No recording is made: the
+         *  notice is the app's whole part in it. */
+        const val ACTION_AI_STARTED = "com.jemcik.jemrec.AI_STARTED"
+        const val ACTION_AI_ENDED = "com.jemcik.jemrec.AI_ENDED"
 
         /** On CALL_STARTED: a recorder started again mid-call joined the
          *  call (Calls.joinedExtra). */

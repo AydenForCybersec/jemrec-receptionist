@@ -46,6 +46,8 @@ public class AnswerMachineTest {
         boolean playing;
         /** The way the call's audio took as each greeting was started. */
         final List<Integer> paths = new ArrayList<>();
+        /** The same for the assistant's track. */
+        final List<Integer> assistantPaths = new ArrayList<>();
         final List<String> logs = new ArrayList<>();
         /** Communication mode is the phone call's, not another app's call. */
         boolean phoneCallOnMixer = true;
@@ -157,6 +159,27 @@ public class AnswerMachineTest {
                 did.add("stop greeting");
             }
             playing = false;
+        }
+
+        @Override
+        public void startAssistant(int path) {
+            did.add("assistant");
+            assistantPaths.add(path);
+            playing = true;
+        }
+
+        @Override
+        public void stopAssistant() {
+            if (playing) {
+                did.add("stop assistant");
+            }
+            playing = false;
+        }
+
+        @Override
+        public void restartAssistant(int path) {
+            did.add("restart assistant");
+            assistantPaths.add(path);
         }
 
         @Override
@@ -2932,5 +2955,80 @@ public class AnswerMachineTest {
         answeredWithGreeting();
         assertTrue(world.did.contains("greeting"));
         assertFalse(world.did.contains("greeting with check tone"));
+    }
+
+    /** The AI receptionist's answer: no greeting file, the assistant's track
+     *  opened instead, the microphone muted. */
+    private void answeredWithAssistant() {
+        world.audioInCall = false;
+        world.greetingPresent = false;
+        machine.configure(true, 60_000L, true);
+        machine.ringing();
+        machine.goAhead(20_000L, world.now);
+        world.advance(20_000L);
+        machine.offHook(true);
+        world.advance(AnswerMachine.AUDIO_POLL_MS);
+        assertEquals("the assistant should have taken the call", AnswerMachine.State.ASSISTANT, machine.state());
+    }
+
+    @Test
+    public void theAssistantTakesTheCallWithoutAGreetingOrMessage() {
+        answeredWithAssistant();
+        assertDid("answer", "mute", "assistant");
+        assertEquals(1, world.assistantPaths.size());
+        assertEquals(Integer.valueOf(Checks.PATH_VOICE), world.assistantPaths.get(0));
+        assertTrue(world.muted);
+    }
+
+    /** A diagnostics test in AI mode is the test, not the assistant: its own
+     *  tone and beep, its own message, and no greeting file needed. */
+    @Test
+    public void aTestInAiModeIsNotTheAssistant() {
+        world.audioInCall = false;
+        world.greetingPresent = false;
+        machine.configure(true, 60_000L, true);
+        machine.armTest(true, 180_000L);
+        machine.ringing();
+        world.advance(AnswerMachine.TEST_ANSWER_MS);
+        machine.offHook(true);
+        world.advance(AnswerMachine.AUDIO_POLL_MS);
+        // The test's own mute follows its check tone, not the answer.
+        assertDid("answer", "greeting with check tone", "message started");
+        assertEquals(AnswerMachine.State.GREETING, machine.state());
+        assertTrue(world.assistantPaths.isEmpty());
+    }
+
+    @Test
+    public void theAssistantCallEndsAtItsLimit() {
+        answeredWithAssistant();
+        world.advance(60_000L);
+        assertTrue("the limit should stop the assistant", world.did.contains("stop assistant"));
+        assertTrue("the limit should hang up", world.did.contains("hang up"));
+    }
+
+    @Test
+    public void takingTheAssistantCallStopsItAndUnmutes() {
+        answeredWithAssistant();
+        machine.talk();
+        assertEquals(AnswerMachine.State.TALKING, machine.state());
+        assertTrue(world.did.contains("stop assistant"));
+        assertFalse(world.muted);
+    }
+
+    @Test
+    public void aMovedAssistantCallRestartsTheTrack() {
+        answeredWithAssistant();
+        machine.pathApplied(Checks.PATH_MIXER);
+        assertTrue(world.did.contains("restart assistant"));
+        assertEquals(Integer.valueOf(Checks.PATH_MIXER),
+                world.assistantPaths.get(world.assistantPaths.size() - 1));
+    }
+
+    @Test
+    public void endingTheAssistantCallStopsIt() {
+        answeredWithAssistant();
+        machine.callEnded();
+        assertTrue(world.did.contains("stop assistant"));
+        assertFalse(world.muted);
     }
 }

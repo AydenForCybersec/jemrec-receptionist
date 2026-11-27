@@ -21,6 +21,12 @@ final class Wakes {
 
     static final String ACTION_MESSAGE_STARTED = "com.jemcik.jemrec.MESSAGE_STARTED";
     static final String ACTION_MESSAGE_TAKEN = "com.jemcik.jemrec.MESSAGE_TAKEN";
+    /** The AI receptionist answered, or its call is over: the app says so,
+     *  and the live monitor knows when to start and stop. The call itself
+     *  runs in the daemon and the Termux service; the app's notification is
+     *  the report, never the condition for the call to go on. */
+    static final String ACTION_AI_STARTED = "com.jemcik.jemrec.AI_STARTED";
+    static final String ACTION_AI_ENDED = "com.jemcik.jemrec.AI_ENDED";
     /** The call's recording stopped mid-call (`for_good`: not even tried
      *  again), and back: RecordingSession. */
     static final String ACTION_RECORDING_STOPPED = "com.jemcik.jemrec.RECORDING_STOPPED";

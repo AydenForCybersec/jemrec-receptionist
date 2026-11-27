@@ -149,11 +149,12 @@ class PreferencesInventoryTest {
          *  call_parts, lost_messages, name_starts, not_recorded_for and
          *  part_recordings (1.2), usb_default_functions,
          *  usb_default_dismissed, usb_default_told_words and usb_default_set_from
-         *  (1.7), call_button and call_button_place (1.8):
+         *  (1.7), call_button and call_button_place (1.8), ai_listen (the AI
+         *  live call):
          *  preference keys, plus the few key-named constants that are file
          *  and extra names, which a rename breaks just the same. */
         val KEYS = listOf(
-            "adb_private_key.der", "adb_refused_in_a_row", "after_call_notice", "answer_cleared_by_update", "answer_default_sim",
+            "adb_private_key.der", "adb_refused_in_a_row", "after_call_notice", "ai_listen", "answer_cleared_by_update", "answer_default_sim",
             "answer_delay_s", "answer_dnd_short", "answer_longest_s", "answer_mixer_", "answer_on", "answer_result_",
             "answer_route", "answer_routes_by_path", "answer_sim", "answer_sim_count", "answer_stage_one", "answer_test",
             "answer_volte_cleared", "auto_delete_after_days",

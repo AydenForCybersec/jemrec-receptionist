@@ -1823,7 +1823,7 @@ class CallMonitorServiceTest {
     @Test fun aTestCallOfTheMachineSaysTesting() {
         wake("MESSAGE_STARTED", incoming = true) { putExtra("test", true) }
         assertEquals("Testing the answering machine", ongoing().title())
-        assertEquals("Your greeting is playing to the caller", ongoing().text())
+        assertEquals("The test sound is playing to the caller", ongoing().text())
         assertEquals(listOf("Talk to them", "Hang up"), ongoing().buttons())
     }
 

@@ -45,6 +45,12 @@ final class Calls {
     /** The call being recorded right now, or null between calls. */
     static volatile @Nullable RecordingSession activeRecording;
 
+    /** The call up is the assistant's: captured for it, never recorded, and
+     *  its end wakes no CALL_ENDED (AI_ENDED is the app's word for it). Set
+     *  at the off-hook in AI mode, and again as the assistant's track opens,
+     *  for a call whose off-hook came before this process saw it. */
+    static volatile boolean assistantCall;
+
     /** Whether a call is up, and its direction - so an on-demand yes that
      *  arrives mid-call knows what it is starting. */
     static volatile boolean callActive;
@@ -121,7 +127,16 @@ final class Calls {
      */
     static void onCallStart(boolean incoming, boolean joined, @Nullable String app, @Nullable Boolean appIncoming) {
         synchronized (LOCK) {
+            // The assistant's calls are captured, not recorded: an answering
+            // machine switched on in the app's AI mode is the fork's
+            // no-recordings mode, for a phone call it answers or one the user
+            // takes. Switched off, calls record as before; messenger calls
+            // are left as they were. A diagnostics test is not the assistant's:
+            // it keeps its own short test recording, as it always has.
+            AnswerSettings settings = Answering.answerSettings;
             AnswerMachine machine = Answering.answerMachine;
+            boolean test = machine != null && machine.testing();
+            boolean assistant = app == null && settings.on && settings.ai && !test;
             CallDecisions.Start start = CallDecisions.start(callActive, app != null, callVoipApp != null,
                     machine != null && machine.takingMessage(),
                     CallDecisions.skipOpen(skipUntil, SystemClock.elapsedRealtime()));
@@ -130,6 +145,10 @@ final class Calls {
                         + (callVoipApp != null ? "a messenger call" : "a phone call") + "; not recording it");
                 return;
             }
+            // The call this process is part of now. A call of the user's
+            // after an assistant call whose end was missed must not have its
+            // own end taken for the assistant's.
+            assistantCall = assistant;
             if (!callActive) {
                 callSeq++;
             }
@@ -145,12 +164,20 @@ final class Calls {
                 // message's own (MESSAGE_STARTED) follows with the greeting.
                 // Not once the user took the call: an off-hook then - a
                 // waiting call - is theirs, asked about as in any call.
+                if (assistant) {
+                    Ln.i("recording: the assistant takes this call; no recording is kept");
+                    return;
+                }
                 beginRecording(incoming, null, null);
                 return;
             }
             if (start == CallDecisions.Start.SKIPPED) {
                 skipUntil = 0;
                 Ln.i("recording: the rules leave this call out; not recording it");
+                return;
+            }
+            if (assistant) {
+                Ln.i("recording: the assistant takes calls; no recording is kept");
                 return;
             }
         }
@@ -337,6 +364,7 @@ final class Calls {
 
     private static void endCall() {
         boolean wasRecording;
+        boolean assistant;
         String app;
         // The answering machine first: it gives the microphone back, and says
         // what became of the message. Only a phone call is ever its business.
@@ -358,6 +386,8 @@ final class Calls {
             app = callVoipApp;
             callVoipApp = null;
             callAppIncoming = null;
+            assistant = assistantCall;
+            assistantCall = false;
             wasRecording = activeRecording != null;
             if (wasRecording) {
                 stopRecording(outcome);
@@ -367,7 +397,10 @@ final class Calls {
             // Recorded or not: its results are complete.
             AnswerTest.testState = "done";
         }
-        if (CallDecisions.endWakes(wasRecording, recordingMode)) {
+        // The assistant's call said its own start and end (AI_STARTED,
+        // AI_ENDED): a blank CALL_ENDED would only bring the app's service
+        // back to take down a prompt this call never put up.
+        if (!assistant && CallDecisions.endWakes(wasRecording, recordingMode)) {
             Wakes.wake(Wakes.ACTION_CALL_ENDED, callIncoming, "", app);
         }
     }

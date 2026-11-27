@@ -104,6 +104,11 @@ object DaemonClient {
     private const val COMMAND_GREETING = 'G'.code.toByte()
     private const val COMMAND_DIAGNOSE = 'X'.code.toByte()
 
+    /** The live AI call, for the app's monitor: caller PCM and the assistant's
+     *  control lines, and nothing the app can say back. The command follows
+     *  the ordinary handshake, so it needs no second secret. */
+    private const val COMMAND_MONITOR = 'm'.code.toByte()
+
     /** Switch Wireless and USB debugging off and go - "Turn all debugging
      *  off" (DebugSwitchesOff). 1 goes, 0 calls off a go still waiting. */
     private const val COMMAND_DEBUGGING_OFF = 'O'.code.toByte()
@@ -865,6 +870,14 @@ object DaemonClient {
      */
     suspend fun connect(context: Context, timeoutMs: Int = 3_000): Socket = handedOver {
         open(context, COMMAND_RECORD, connectMs = timeoutMs, readMs = LIVE_READ_MS)
+    }
+
+    /**
+     * The live monitor's socket: caller PCM and the AI link's control lines,
+     * with no read timeout - a call may be quiet for longer than any reply.
+     */
+    suspend fun monitor(context: Context, timeoutMs: Int = 3_000): Socket = handedOver {
+        open(context, COMMAND_MONITOR, connectMs = timeoutMs, readMs = 0)
     }
 
     /**

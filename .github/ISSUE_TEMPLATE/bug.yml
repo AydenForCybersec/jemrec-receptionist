@@ -12,7 +12,7 @@ body:
       value: |
         Please don't attach recordings of real calls, or put anyone's name or number here.
 
-        A question goes to [Q&A](https://github.com/jemcik/JemRec/discussions/categories/q-a), an idea to [Ideas](https://github.com/jemcik/JemRec/discussions/categories/ideas).
+        A question or an idea can go to this repository's Discussions tab, if the owner has enabled it.
   - type: textarea
     id: what
     attributes:

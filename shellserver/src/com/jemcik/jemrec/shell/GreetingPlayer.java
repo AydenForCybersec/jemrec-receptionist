@@ -102,7 +102,7 @@ final class GreetingPlayer {
 
     private volatile @Nullable Session current;
 
-    void play(AudioManager audio, String route, boolean checkTone, File greeting, Listener listener) {
+    void play(AudioManager audio, String route, boolean checkTone, @Nullable File greeting, Listener listener) {
         stop();
         Session session = new Session();
         current = session;
@@ -151,7 +151,7 @@ final class GreetingPlayer {
         }
     }
 
-    private void run(Session session, AudioManager audio, String route, boolean checkTone, File greeting,
+    private void run(Session session, AudioManager audio, String route, boolean checkTone, @Nullable File greeting,
                      Listener listener) {
         AudioTrack tr = null;
         int madeIn = -1;
@@ -159,7 +159,8 @@ final class GreetingPlayer {
             // Read first: a track, once made, can be released under it at any
             // moment, and up to MAX_BYTES of reading is a moment to give it.
             // Whole blocks, so the loudness of what follows lines up with them.
-            byte[] words = read(greeting);
+            // No file is a test's sound without a recording: tone and beep.
+            byte[] words = greeting == null ? new byte[0] : read(greeting);
             words = java.util.Arrays.copyOf(words, (words.length + BLOCK_FRAMES * 2 - 1) / (BLOCK_FRAMES * 2) * BLOCK_FRAMES * 2);
             madeIn = audio.getMode();
             tr = AnswerSettings.ROUTE_SCREENING.equals(route) ? screeningTrack(audio) : musicTrack(audio);
@@ -298,8 +299,9 @@ final class GreetingPlayer {
                 .build();
     }
 
-    /** A media track with the uplink device requested: in-call music. */
-    private static AudioTrack musicTrack(AudioManager audio) {
+    /** A media track with the uplink device requested: in-call music. Shared
+     *  with AssistantAudio, which keeps one open for a whole call. */
+    static AudioTrack musicTrack(AudioManager audio) {
         AudioDeviceInfo uplink = null;
         for (AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             if (d.getType() == AudioDeviceInfo.TYPE_TELEPHONY) {
@@ -325,7 +327,7 @@ final class GreetingPlayer {
     }
 
     /** The call-screening SystemApi's own track (CALL_AUDIO_INTERCEPTION). */
-    private static AudioTrack screeningTrack(AudioManager audio) throws ReflectiveOperationException {
+    static AudioTrack screeningTrack(AudioManager audio) throws ReflectiveOperationException {
         return (AudioTrack) AudioManager.class
                 .getMethod("getCallUplinkInjectionAudioTrack", AudioFormat.class)
                 .invoke(audio, mono());

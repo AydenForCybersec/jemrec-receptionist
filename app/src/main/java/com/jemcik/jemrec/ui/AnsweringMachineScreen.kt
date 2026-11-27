@@ -36,10 +36,12 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.jemcik.jemrec.answering.AnswerDiagnostics
 import com.jemcik.jemrec.answering.AnsweringMachine
 import com.jemcik.jemrec.answering.EmergencyPause
 import com.jemcik.jemrec.answering.Greeting
+import com.jemcik.jemrec.capture.AiLive
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -49,15 +51,19 @@ import java.util.Locale
 private enum class AnswerDialog { DELAY, DND, LONGEST, NO_LIMIT, SIM, TEST, CARRIER, RESUME }
 
 /**
- * THE ANSWERING MACHINE: it answers the phone calls you do not take, plays your own
- * greeting to the caller with your microphone muted, and records their
- * message. Off until switched on, and it can be switched on only once the
- * no-call checks pass and a greeting is recorded. The test call underneath is
- * how a phone goes from "possible" to "works".
+ * THE ANSWERING MACHINE: the AI assistant answers the phone calls you do not
+ * take, with your microphone muted, and no call is recorded. It says it is
+ * automated, asks who is calling, and replies from the on-phone model. Off
+ * until switched on, and it can be switched on once the no-call checks pass.
+ * The test call underneath is how a phone goes from "possible" to "works": it
+ * plays a short tone and beep on the route the assistant's voice takes.
  */
 @Composable
 fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier = Modifier) {
     val a by vm.answer.state.collectAsState()
+    // The assistant's call, while it is up: this screen's way into the live
+    // transcript and the two ways out of the call.
+    val live by AiLive.state.collectAsStateWithLifecycle()
     // A take holding the microphone, this screen's or another window's: the
     // greeting takes no tap - a preview would go into the take - and Record
     // and Delete wait, as for this screen's own take.
@@ -111,9 +117,10 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             onDismiss = { dialog = null },
         )
         AnswerDialog.LONGEST -> ChoiceDialog(
-            title = "Longest message",
-            intro = "How long a caller can speak after the beep before JemRec hangs up and " +
-                "saves the message. No limit waits for the caller to hang up, or to fall silent.",
+            title = "Longest call",
+            intro = "How long the assistant may keep the call before it closes and hangs up. " +
+                "No limit runs until the caller hangs up, or falls silent, but the assistant " +
+                "still stops at 2 minutes.",
             choices = AnsweringMachine.LONGEST,
             selected = a.longest,
             label = ::longestLabel,
@@ -128,11 +135,12 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             title = { Text("No limit?") },
             text = {
                 Text(
-                    "The message runs until the caller hangs up, or until they have been " +
-                        "silent for ${AnsweringMachine.SILENCE_HANGUP_SECONDS} seconds. Until then " +
-                        "your phone is in that call: you cannot make a call without ending it, " +
-                        "and other calls wait. A caller somewhere noisy may never count as " +
-                        "silent, and then it lasts until they hang up.",
+                    "The call runs until the caller hangs up, or until they have been quiet " +
+                        "for 15 seconds. The assistant still stops at 2 minutes: that is its hard " +
+                        "cap. Until then your phone is in " +
+                        "that call: you cannot make a call without ending it, and other calls " +
+                        "wait. A caller somewhere noisy may never count as silent, and then it " +
+                        "lasts until they hang up.",
                 )
             },
             confirmButton = {
@@ -166,9 +174,9 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             title = { Text("Answer calls again?") },
             text = {
                 Text(
-                    "You called an emergency number. If they call you back while you cannot " +
-                        "pick up, the answering machine would answer them with your greeting, " +
-                        "instead of letting your phone ring until you can." +
+                                            "You called an emergency number. If they call you back while you cannot " +
+                        "pick up, the AI assistant would answer them, instead of letting your " +
+                        "phone ring until you can." +
                         (a.pausedUntil?.let { " The pause ends by itself on ${pauseEnd(it)}." } ?: ""),
                 )
             },
@@ -187,8 +195,8 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
     a.askHeard?.let { type ->
         AlertDialog(
             onDismissRequest = vm.answer::dismissHeard,
-            title = { Text("Did the caller hear your greeting?") },
-            text = { Text("All of it, from the start, and no sound from around this phone.") },
+            title = { Text("Did the caller hear the test?") },
+            text = { Text("The tone, your greeting if you recorded one, and the beep. No sound from around this phone.") },
             confirmButton = { TextButton(onClick = { haptics.confirm(); vm.answer.heard(type, true) }) { Text("Yes") } },
             dismissButton = { TextButton(onClick = { vm.answer.heard(type, false) }) { Text("No") } },
         )
@@ -204,7 +212,7 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
                     summary = when {
                         blocked != null && !a.enabled -> blocked
                         paused != null -> "Paused after an emergency call, until ${pauseEnd(paused)}"
-                        a.enabled -> "Answers the phone calls you don't take, after ${a.delay} seconds"
+                        a.enabled -> "The AI assistant answers the calls you don't take, after ${a.delay} seconds"
                         else -> "Off"
                     },
                     summaryColor = if (blocked != null && a.stageOne?.possible == false || paused != null) {
@@ -234,9 +242,22 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             }
         }
 
+        if (live.up) {
+            SettingsGroup("This call") {
+                row {
+                    SettingsRow(
+                        title = "AI call in progress",
+                        summary = "Tap for the live transcript, to hear the caller, or to take the call",
+                        icon = Icons.Filled.Call,
+                        onClick = { vm.showScreen(Screen.AI_MONITOR) },
+                    )
+                }
+            }
+        }
+
         SettingsGroup(
             "When it answers",
-            note = "It answers only the callers JemRec records: Whose calls to keep, in " +
+            note = "It answers only the callers your rules keep: Whose calls to keep, in " +
                 "Settings, applies here too.",
         ) {
             row {
@@ -277,11 +298,11 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             }
             row {
                 SettingsRow(
-                    title = "Longest message",
+                    title = "Longest call",
                     summary = if (a.longest == AnsweringMachine.NO_LIMIT) {
-                        "No limit - it hangs up after ${AnsweringMachine.SILENCE_HANGUP_SECONDS} seconds of silence"
+                        "No limit - the assistant still stops at 2 minutes"
                     } else {
-                        "${seconds(a.longest)}, then it hangs up"
+                        "${seconds(a.longest)}, then the assistant hangs up"
                     },
                     icon = SettingsIcons.Timer,
                     onClick = { dialog = AnswerDialog.LONGEST },
@@ -289,7 +310,11 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
             }
         }
 
-        SettingsGroup("Greeting") {
+        SettingsGroup(
+            "Greeting for the test call",
+            note = "Optional. The AI assistant speaks its own first line; the test call uses " +
+                "this recording when you make one, and a beep when you do not.",
+        ) {
             row {
                 SettingsRow(
                     title = when {
@@ -306,7 +331,7 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
                         a.greetingSeconds != null ->
                             "${seconds((a.greetingSeconds ?: 0.0).toInt().coerceAtLeast(1))}. " +
                                 if (a.playing) "Playing - tap to stop" else "Tap to play it"
-                        else -> "Record what callers hear before the beep"
+                        else -> "Record a voice for the test call, or leave it out"
                     },
                     // Red only for the problem itself: "Waiting for the
                     // recorder..." over an earlier take's problem showed red.
@@ -363,7 +388,7 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
                     summary = when {
                         a.checking -> "Checking..."
                         stage == null -> "Not run yet - tap to run"
-                        stage.possible -> "Passed: this phone can play a greeting into a call. A test call tells for sure."
+                        stage.possible -> "Passed: this phone can put a voice into a call. A test call tells for sure."
                         else -> stage.problem
                     },
                     summaryColor = if (stage?.possible == false) {
@@ -388,12 +413,12 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
                             a.testIncoming -> "Waiting for someone to call, until ${timeOfDay(a.testUntil)}"
                             else -> "Calling..."
                         }
-                        "running" -> "Testing - your greeting is playing to the call"
+                        "running" -> "Testing - the test sound is playing to the call"
                         else -> testedSummary(a)
                     },
                     icon = Icons.Filled.Call,
                     onClick = if (a.test == null) ({ dialog = AnswerDialog.TEST }) else null,
-                    enabled = a.stageOne?.possible == true && a.greetingSeconds != null && state.daemonRunning,
+                    enabled = a.stageOne?.possible == true && state.daemonRunning,
                 )
             }
             row {
@@ -422,19 +447,18 @@ fun AnsweringMachineScreen(state: UiState, vm: MainViewModel, modifier: Modifier
         }
 
         SettingsFooter(
-            "When it answers, your microphone is muted and your greeting plays to the caller, " +
-                "then a beep. Their message is saved like any recording, marked as a message, " +
-                "and a notification tells you. While they speak you can still take the call: " +
-                "Talk to them in the notification, or unmute on the call screen.",
+            "When it answers, your microphone is muted and the AI assistant says it is " +
+                "automated, asks who is calling and why, and replies. The call is not recorded: " +
+                "its transcript is in the notification and on the live call screen. You can take " +
+                "the call at any time with Talk to them there.",
             "It answers phone calls only - not WhatsApp, Telegram, Viber or Google Meet " +
                 "calls - and never while you are on another call, a messenger call or in a " +
                 "meeting, or roaming, or " +
                 "for a day after you call an emergency number. If JemRec cannot tell who is " +
                 "calling, it lets the phone ring.",
-            "JemRec records your greeting the way it records calls, through its recorder, so it " +
-                "never needs permission to use the microphone. Experimental: tested on two phones, an Honor " +
-                "on 2G calls and a Galaxy S23 over Wi-Fi Calling. " +
-                "The test call here is how to know it works on yours.",
+            "The assistant runs in Termux on this phone, so nothing leaves it. Experimental: " +
+                "tested on two phones, an Honor on 2G calls and a Galaxy S23 over Wi-Fi Calling. " +
+                "The test call here checks the route the assistant's voice takes on yours.",
         )
     }
 }
@@ -474,8 +498,8 @@ private fun TestDialog(pausedUntil: Long?, start: (Boolean, String) -> Unit, dis
                 Text(
                     if (pausedUntil == null) {
                         "Best: someone calls you. The next call in three minutes is answered with a " +
-                            "short tone and your greeting, whoever is calling - then you are asked " +
-                            "whether they heard it."
+                            "short tone, your greeting if you recorded one, and a beep, whoever is " +
+                            "calling - then you are asked whether they heard it."
                     } else {
                         // Whoever calls in its three minutes is answered: in
                         // the day after an emergency call, that may be them.
@@ -558,7 +582,8 @@ private fun seconds(s: Int): String = when {
     else -> "$s seconds"
 }
 
-private fun longestLabel(s: Int): String = if (s == AnsweringMachine.NO_LIMIT) "No limit" else seconds(s)
+private fun longestLabel(s: Int): String =
+    if (s == AnsweringMachine.NO_LIMIT) "No limit (2 minute cap)" else seconds(s)
 
 /** How long the take has run, in whole seconds. */
 internal fun takeSeconds(elapsedMs: Long): String = "%d s".format(Locale.US, (elapsedMs / 1000).coerceAtLeast(0))

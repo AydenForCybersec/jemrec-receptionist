@@ -46,7 +46,7 @@ final class RecordingSession {
      *  capture while the call plays through the mixer (PhoneCapture); with
      *  [from], where the call stood, one made anew for the same call
      *  (CallPath). */
-    private static PhoneCapture phoneCapture(CallReport report, @Nullable CallPath from) {
+    static PhoneCapture phoneCapture(CallReport report, @Nullable CallPath from) {
         return new PhoneCapture(new PhoneCapture.Call() {
             @Override
             public AudioCapture voice() {
@@ -238,6 +238,10 @@ final class RecordingSession {
                 report, told);
         AudioCapture capture = new LevelTap(inner, (pcm, frames, atMs) -> {
             report.chunk(pcm, frames, AudioConfig.CHANNELS);
+            // The AI link's caller side: the capture, as it is read, to any
+            // assistant or monitor connected. Its own listener drops the
+            // chunk at once when no call is up or nobody is listening.
+            AiLink.onCallerPcm(pcm, frames, atMs);
             if (answered) {
                 Answering.onChunk(pcm, frames, atMs);
             }

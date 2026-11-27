@@ -453,8 +453,9 @@ class AnswerTestCallTest {
         AnswerDiagnostics.rememberStageOne(context, mapOf("perms" to "ok", "incallmusic" to "1", "screening" to "1"))
         AnsweringMachine.setRoute(context, AnsweringMachine.ROUTE_SCREENING)
         AnswerDiagnostics.record(context, "VoLTE", AnswerDiagnostics.Verdict.WORKS)
-        // What the launcher sends the recorder, read first.
-        assertTrue(AnsweringMachine.wire(context).endsWith(",music"))
+        // What the launcher sends the recorder, read first. The fork's last
+        // field is the AI receptionist's: the route is still the third.
+        assertTrue(AnsweringMachine.wire(context).endsWith(",music,ai"))
         assertTrue(AnswerDiagnostics.results(context).isEmpty())
     }
 

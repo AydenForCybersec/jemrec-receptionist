@@ -46,6 +46,16 @@ keystore.properties
 __pycache__/
 *.pyc
 
+# Local receptionist data: personal notes, logs, and model files
+.env
+.env.*
+!.env.example
+/tools/ai/assistant.txt
+/tools/ai/*.log
+/receptionist.log
+*.gguf
+*.onnx
+
 # Claude Code local state
 .claude/
 

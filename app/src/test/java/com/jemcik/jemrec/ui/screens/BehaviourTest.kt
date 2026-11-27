@@ -181,7 +181,7 @@ class BehaviourTest : ScreenTest() {
 
         val opened = shadowOf(RuntimeEnvironment.getApplication()).nextStartedActivity
         assertEquals(android.content.Intent.ACTION_VIEW, opened.action)
-        assertEquals("https://github.com/jemcik/JemRec/releases/latest", opened.dataString)
+        assertEquals("https://github.com/AydenForCybersec/jemrec-receptionist/releases", opened.dataString)
         // The screen stays where it was.
         assertEquals(Screen.SETTINGS, vm.state.value.screen)
     }
@@ -631,19 +631,19 @@ class BehaviourTest : ScreenTest() {
         val state = Fixtures.ready().copy(screen = Screen.ANSWERING_MACHINE)
         val vm = viewModel(state, AnswerUi(enabled = true, greetingSeconds = 6.0, longest = 60))
         show { AppScaffold(state, vm) }
-        compose.onNodeWithText("Longest message").performScrollTo().performClick()
-        compose.onNodeWithText("No limit").performClick()
+        compose.onNodeWithText("Longest call").performScrollTo().performClick()
+        compose.onNodeWithText("No limit (2 minute cap)").performClick()
         // A warning, not the setting: Cancel leaves it as it was.
         compose.onNodeWithText("No limit?").assertIsDisplayed()
         compose.onNodeWithText("Cancel").performClick()
         assertEquals(60, vm.answer.state.value.longest)
-        compose.onNodeWithText("1 minute, then it hangs up").assertIsDisplayed()
+        compose.onNodeWithText("1 minute, then the assistant hangs up").assertIsDisplayed()
         // Asked again, and said yes to.
-        compose.onNodeWithText("Longest message").performClick()
-        compose.onNodeWithText("No limit").performClick()
+        compose.onNodeWithText("Longest call").performClick()
+        compose.onNodeWithText("No limit (2 minute cap)").performClick()
         compose.onNodeWithText("No limit").performClick()
         assertEquals(com.jemcik.jemrec.answering.AnsweringMachine.NO_LIMIT, vm.answer.state.value.longest)
-        compose.onNodeWithText("No limit - it hangs up after 30 seconds of silence").assertIsDisplayed()
+        compose.onNodeWithText("No limit - the assistant still stops at 2 minutes").assertIsDisplayed()
     }
 
     @Test fun answeringAgainAfterAnEmergencyCallIsAskedAboutFirst() {

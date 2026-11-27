@@ -337,6 +337,9 @@ class MainViewModel @JvmOverloads constructor(
                 // narrowing it and nothing selected - the media notification's
                 // row among them - where until 0.30 each of these opened a
                 // window of its own on that list.
+                // The assistant's ongoing notice: the live screen, where
+                // the transcript and the two ways out of the call are.
+                DeepLink.Kind.AI_MONITOR -> showScreen(Screen.AI_MONITOR)
                 DeepLink.Kind.HOME -> _state.update { it.revealed() }
                 // From the "stopped in the background" warning: open the vendor
                 // auto-start screen. JemRec cannot change the setting itself,
@@ -392,6 +395,22 @@ class MainViewModel @JvmOverloads constructor(
 
     /** The list's waveform fill-in stops with the screen (WaveformFill). */
     fun stopFillingIn() = fill.stop()
+
+    /** Talk to them, or Hang up, on a call the assistant has: the recorder's
+     *  hand-over, the same command the message machine's notice uses. */
+    fun handOverAi(talk: Boolean) {
+        val app = getApplication<Application>()
+        viewModelScope.launch {
+            val ok = CaptureDaemon.handOver(app, talk)
+            tell(
+                when {
+                    !ok -> "the AI call is not up"
+                    talk -> "the call is yours"
+                    else -> "the assistant is hanging up"
+                },
+            )
+        }
+    }
 
     /** The screen came forward: the pairing watched from now on, and the
      *  player shows what the session plays (Playback.shown). */

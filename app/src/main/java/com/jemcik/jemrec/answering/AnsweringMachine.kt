@@ -40,9 +40,8 @@ object AnsweringMachine {
     /** About two rings: Do Not Disturb would silence the call anyway. */
     const val DND_DELAY = 5
 
-    /** The longest message, in seconds; [NO_LIMIT] runs until the caller
-     *  hangs up, or has been silent half a minute (the recorder's
-     *  AnswerMachine.SILENCE_HANGUP_MS). */
+    /** The longest call, in seconds; [NO_LIMIT] runs until the caller hangs
+     *  up, the service hears no speech, or its 2 minute backstop. */
     const val NO_LIMIT = 0
     const val SILENCE_HANGUP_SECONDS = 30
     val LONGEST = listOf(30, 60, 120, NO_LIMIT)
@@ -164,15 +163,20 @@ object AnsweringMachine {
     const val ROUTE_MUSIC = "music"
     const val ROUTE_SCREENING = "screening"
 
-    /** "on,seconds,route", as the recorder reads it (its AnswerSettings).
-     *  On only with a greeting to play: otherwise there is nothing to say. */
+    /** "on,seconds,route,ai", as the recorder reads it (its AnswerSettings).
+     *  The fork's assistant speaks its own first line, so no recorded
+     *  greeting is needed: the switch is the whole condition. The last field
+     *  is the fork's: the receiver answers with the AI receptionist, not the
+     *  message machine. */
     fun wire(context: Context): String = wire(
-        on = enabled(context) && Greeting.present(context),
+        on = enabled(context),
         longest = longest(context),
         route = route(context),
+        assistant = true,
     )
 
-    internal fun wire(on: Boolean, longest: Int, route: String): String = "${if (on) 1 else 0},$longest,$route"
+    internal fun wire(on: Boolean, longest: Int, route: String, assistant: Boolean = false): String =
+        "${if (on) 1 else 0},$longest,$route" + if (assistant) ",ai" else ""
 
     /** What is known about a ringing call and the phone, for [decide]. */
     data class Ringing(
@@ -200,6 +204,9 @@ object AnsweringMachine {
         val emergencyCallback: Boolean = false,
         /** The user called an emergency number within a day (EmergencyPause). */
         val emergencyPaused: Boolean = false,
+        /** The call is the AI receptionist's: its first line is spoken by
+         *  the service, so a recorded greeting is not needed. */
+        val assistant: Boolean = false,
     )
 
     /** The go-ahead to send, or why there is none. */
@@ -214,7 +221,7 @@ object AnsweringMachine {
      */
     fun decide(r: Ringing): Decision = when {
         !r.enabled -> Decision.No("switched off")
-        !r.greeting -> Decision.No("no greeting recorded")
+        !r.greeting && !r.assistant -> Decision.No("no greeting recorded")
         !r.recorderOn -> Decision.No("recording is switched off")
         !r.trackingOn -> Decision.No("exact call tracking is off")
         r.otherCalls > 0 -> Decision.No("another call is up")

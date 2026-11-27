@@ -54,6 +54,14 @@ class AnsweringMachineTest {
         no(ringing(simAllowed = false))
     }
 
+    @Test fun theAssistantNeedsNoGreeting() {
+        // The message machine does; the AI speaks its own first line.
+        no(ringing(greeting = false))
+        assertEquals(Decision.Answer(20), AnsweringMachine.decide(ringing(greeting = false).copy(assistant = true)))
+        // Every other doubt still stops it.
+        no(ringing(greeting = false).copy(assistant = true, roaming = true))
+    }
+
     @Test fun neverAnEmergencyCallback() {
         // Marked as one by the network or the phone: never answered.
         no(ringing().copy(emergencyCallback = true))

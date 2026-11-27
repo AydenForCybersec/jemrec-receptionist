@@ -11,6 +11,9 @@ internal object CallNotice {
         val callUp: Boolean,
         /** The recorder is recording it. */
         val recording: Boolean,
+        /** The assistant has the call: no recording, and its own service
+         *  notification until it ends or the user takes it. */
+        val aiUp: Boolean = false,
         /** A save failed: the user is told why, by tapping. */
         val notRecording: Boolean,
         /** The recording stopped mid-call, and whether it is tried again. */
@@ -26,6 +29,13 @@ internal object CallNotice {
         /** Ask first's ticket for the call up, while Record can still be
          *  tapped (RecordPrompt.ticket): not answered, or answered Not now. */
         val recordTicket: String? = null,
+        /** What the assistant is doing (AiState.phaseWords), while it has
+         *  the call. Null keeps the plain line, for an older call or a
+         *  monitor that has not connected yet. */
+        val aiWords: String? = null,
+        /** The caller's last words, under the state: the live transcript's
+         *  tail, never a recording. */
+        val aiLast: String? = null,
     )
 
     data class Notice(
@@ -37,6 +47,9 @@ internal object CallNotice {
         val buttonTicket: String?,
         /** The ticket Record carries; no Record without one. */
         val recordTicket: String? = null,
+        /** A second line under the text: the caller's last words, for the
+         *  assistant's notice. */
+        val subText: String? = null,
     )
 
     enum class Stopped {
@@ -54,23 +67,25 @@ internal object CallNotice {
         val ticket = s.messageTicket
         // Only the cable watch, no call: a check that ends in seconds when the
         // cable changed nothing, and so the one notification here that waits.
-        val cableOnly = s.checkingRecorder && !s.callUp && !s.recording && ticket == null
+        val cableOnly = s.checkingRecorder && !s.callUp && !s.recording && ticket == null && !s.aiUp
         // The background-kill warning's wake, no call and no cable watch: over
         // as soon as the warning is posted, so it waits, and is never seen.
-        val warningWake = s.warningOnly && !s.checkingRecorder && !s.callUp && !s.recording && ticket == null
+        val warningWake = s.warningOnly && !s.checkingRecorder && !s.callUp && !s.recording && ticket == null && !s.aiUp
         // Ask first, the call not recorded: Record here to its end, whatever
         // became of the question - answered Not now, swiped away, or still up.
         // Until 1.8 Not now was the last word on a call, and a user on One UI,
         // where a banner goes by itself, found no way back to it.
-        val record = s.recordTicket?.takeIf { s.callUp && !s.recording && ticket == null }
+        val record = s.recordTicket?.takeIf { s.callUp && !s.recording && ticket == null && !s.aiUp }
         // This service only exists during a call, so the notification only
         // says what it is doing about THIS call. "Recording call" while it
         // records; "Call in progress" in the gap before recording starts.
         val (title, text) = when {
             warningWake -> "Checking JemRec" to "Making sure it keeps running"
             cableOnly -> "Checking the recorder" to "A USB cable went in or came out"
-            ticket != null && s.testing -> "Testing the answering machine" to "Your greeting is playing to the caller"
+            ticket != null && s.testing -> "Testing the answering machine" to "The test sound is playing to the caller"
             ticket != null -> "Taking a message" to "Your greeting is playing; your microphone is muted"
+            s.aiUp -> "Assistant answering" to (s.aiWords
+                ?: "The assistant is handling this call; your microphone is muted")
             s.recording && s.stopped == Stopped.TRYING ->
                 "Recording stopped" to "Trying again - this part of the call is not recorded"
             s.recording && s.stopped == Stopped.FOR_GOOD ->
@@ -80,6 +95,9 @@ internal object CallNotice {
             s.notRecording -> "Not recording this call" to "Tap to see why"
             else -> "Call in progress" to "JemRec is handling this call"
         }
-        return Notice(title, text, deferred = cableOnly || warningWake, buttonTicket = ticket, recordTicket = record)
+        return Notice(
+            title, text, deferred = cableOnly || warningWake, buttonTicket = ticket,
+            recordTicket = record, subText = s.aiLast?.takeIf { s.aiUp && s.aiWords != null },
+        )
     }
 }

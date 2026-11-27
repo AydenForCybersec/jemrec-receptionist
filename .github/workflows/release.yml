@@ -62,6 +62,9 @@ jobs:
   # from a commit on main. That commit is the one F-Droid builds and the one
   # the APK's version-control stamp names.
   decide:
+    # Fork-safe default: no release runs until the repository owner sets the
+    # ENABLE_RELEASES repository variable and adds their own signing secrets.
+    if: ${{ vars.ENABLE_RELEASES == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.decide.outputs.tag }}

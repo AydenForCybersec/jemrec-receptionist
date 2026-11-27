@@ -156,6 +156,18 @@ final class LoopbackServer {
             Commands.pong(client);
             return;
         }
+        if (first == Wire.COMMAND_AI) {
+            // The assistant's link, checked by uid rather than the token: the
+            // Termux service is not JemRec and has no token, and the kernel's
+            // owner for the client's socket is the fact that matters. No
+            // handshake follows, and the session's own frames (AiLink).
+            if (!fromAi(client)) {
+                refuse(client, "not the AI service");
+                return;
+            }
+            AiLink.serveAi(client);
+            return;
+        }
         if (first != Wire.COMMAND_HELLO) {
             refuse(client, "no handshake (first byte " + first + ")");
             return;
@@ -241,6 +253,26 @@ final class LoopbackServer {
         // Reinstalled since this daemon started, perhaps: a new uid. Asked
         // again once before turning the caller away.
         return Checks.callerAllowed(uid, appUid(true));
+    }
+
+    /** The AI link's caller, by the same table: the shell, or Termux's uid -
+     *  and nothing when Termux is not installed or could not be read. */
+    private static boolean fromAi(Socket client) {
+        int uid = peerUid(client);
+        return Checks.aiAllowed(uid, aiUid(false)) || Checks.aiAllowed(uid, aiUid(true));
+    }
+
+    private static volatile int aiUid = -1;
+
+    private static int aiUid(boolean fresh) {
+        if (fresh || aiUid < 0) {
+            try {
+                aiUid = FakeContext.get().getPackageManager().getPackageUid(Main.AI_PACKAGE, 0);
+            } catch (Throwable t) {
+                aiUid = -1;
+            }
+        }
+        return aiUid;
     }
 
     private static volatile int appUid = -1;

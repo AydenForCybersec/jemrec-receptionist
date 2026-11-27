@@ -445,6 +445,7 @@ internal fun AppScaffold(state: UiState, vm: MainViewModel) {
                             Screen.MESSENGER_CALLS -> MessengerCallsScreen(state, vm)
                             Screen.DIAGNOSTICS -> DiagnosticsScreen(state, vm)
                             Screen.ANSWERING_MACHINE -> AnsweringMachineScreen(state, vm)
+                            Screen.AI_MONITOR -> AiMonitorScreen(vm)
                             Screen.WHEN_OFF -> WhenOffScreen(state, vm)
                             else -> SettingsScreen(state, vm, askForCallLog, pickFolder)
                         }
@@ -513,6 +514,7 @@ internal fun AppHeader(state: UiState, vm: MainViewModel, panel: (@Composable ()
             Screen.MESSENGER_CALLS -> "Messenger calls"
             Screen.DIAGNOSTICS -> "Diagnostics"
             Screen.ANSWERING_MACHINE -> "Answering machine"
+            Screen.AI_MONITOR -> "Live call"
             Screen.TRASH -> "Recently deleted"
             Screen.THEME -> "Theme"
             Screen.WHEN_OFF -> "When JemRec is off"

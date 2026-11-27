@@ -101,6 +101,17 @@ final class Checks {
     }
 
     /**
+     * The AI link's caller: the shell (for tools and probes) or the one app
+     * named as the AI service, by uid. Unknown on either side is refused -
+     * this link carries the call's audio and can speak into it, so a uid that
+     * could not be read is no caller at all. The app's own link is the
+     * handshake's, in fromJemRec, and this is not it.
+     */
+    static boolean aiAllowed(int peer, int ai) {
+        return peer > 0 && (peer == SHELL_UID || (ai > 0 && peer == ai));
+    }
+
+    /**
      * Whether `dumpsys media.audio_policy` shows what the answering machine's
      * greeting needs: 1 for the call's uplink device among the outputs
      * available now and an output with AUDIO_OUTPUT_FLAG_INCALL_MUSIC - the

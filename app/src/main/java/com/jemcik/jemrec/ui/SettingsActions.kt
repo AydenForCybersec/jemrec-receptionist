@@ -452,4 +452,4 @@ internal class SettingsActions(
 
 /** GitHub's newest release of JemRec, not a pre-release: its page has the
  *  APK. */
-internal const val NEWEST_RELEASE = "https://github.com/jemcik/JemRec/releases/latest"
+internal const val NEWEST_RELEASE = "https://github.com/AydenForCybersec/jemrec-receptionist/releases"

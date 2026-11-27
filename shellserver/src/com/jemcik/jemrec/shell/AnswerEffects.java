@@ -9,6 +9,7 @@ import android.os.SystemClock;
 import android.telecom.TelecomManager;
 import android.telephony.TelephonyManager;
 
+import java.io.File;
 import java.io.FileOutputStream;
 
 /**
@@ -200,10 +201,14 @@ final class AnswerEffects implements AnswerMachine.Effects {
             AnswerTest.testMixer = CallDecisions.mixerAsGreetingBegins(AnswerTest.testChecked, AnswerTest.testMixer,
                     path);
         }
+        // A test in AI mode may have no greeting file: its check tone and
+        // beep still test the route. A message call without one never
+        // reaches here (AnswerMachine.answer refuses it).
+        File greetingFile = machine.testing() && !Greeting.present() ? null : Greeting.FILE;
         // What the player says is this greeting's alone: one stopped as the
         // call moved can still report a release it saw before the stop
         // (GreetingPlayer.releasedUnder), after the next one began.
-        Answering.greetingPlayer.play(callAudio, route, checkTone, Greeting.FILE, new GreetingPlayer.Listener() {
+        Answering.greetingPlayer.play(callAudio, route, checkTone, greetingFile, new GreetingPlayer.Listener() {
             @Override
             public void checkToneDone() {
                 mainHandler.post(() -> {
@@ -280,6 +285,34 @@ final class AnswerEffects implements AnswerMachine.Effects {
     }
 
     @Override
+    public void startAssistant(int path) {
+        // The capture first: the service hears the caller from the call's
+        // audio, not from a recording, and may speak as soon as READY. The
+        // track next: the caller's first line is the service's, and it is
+        // waiting for READY, so this only has to be up before that.
+        Calls.assistantCall = true;
+        CallAudioPump.start(Calls.callIncoming);
+        AiLink.callStarted(path);
+        // The app says the assistant has the call: it holds its service for
+        // the call, without a recording or a prompt.
+        Wakes.wake(Wakes.ACTION_AI_STARTED, Calls.callIncoming, "", null);
+    }
+
+    @Override
+    public void stopAssistant() {
+        CallAudioPump.stop();
+        AiLink.callEnded();
+        Wakes.wake(Wakes.ACTION_AI_ENDED, Calls.callIncoming, "", null);
+    }
+
+    @Override
+    public void restartAssistant(int path) {
+        // The call is still up: the link and its clients keep it, only the
+        // track is made again on the route the new path takes.
+        AiLink.restart(path);
+    }
+
+    @Override
     public boolean greetingLoud() {
         return Answering.ownSideSounds && Answering.greetingPlayer.loudNow();
     }
@@ -303,6 +336,13 @@ final class AnswerEffects implements AnswerMachine.Effects {
 
     @Override
     public void callTaken() {
+        if (Calls.assistantCall) {
+            // The assistant's call, taken over: no message was being kept,
+            // so there is nothing to split and no prompt to put up. AI_ENDED
+            // has already told the app the assistant is off the call.
+            Ln.i("answer: the user took the assistant's call; no recording or prompt");
+            return;
+        }
         AnswerMachine machine = Answering.answerMachine;
         if (machine != null && CallDecisions.splitsOffMessage(Calls.recordingMode, machine.testing())) {
             // Ask first: the message ends where the user took the call,

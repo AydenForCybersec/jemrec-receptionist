@@ -75,7 +75,9 @@ class AnswerSummaryTest {
         assertEquals("Run the checks below first", AnswerUi().blocked)
         assertEquals(failed.problem, AnswerUi(stageOne = failed).blocked)
         assertEquals("Needs exact call tracking, in Settings", AnswerUi(stageOne = passed, callTracking = false).blocked)
-        assertEquals("Record a greeting first", AnswerUi(stageOne = passed).blocked)
+        // No greeting is needed in this fork: the assistant speaks its own
+        // first line, so the checks and tracking are the whole condition.
+        assertNull(AnswerUi(stageOne = passed).blocked)
         assertNull(AnswerUi(stageOne = passed, greetingSeconds = 6.0).blocked)
     }
 

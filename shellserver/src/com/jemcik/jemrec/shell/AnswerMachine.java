@@ -102,6 +102,10 @@ final class AnswerMachine {
         GREETING,
         /** After the beep: the caller is leaving the message. */
         MESSAGE,
+        /** Answered for the AI receptionist: the microphone is muted, a call's
+         *  audio is injected from the assistant's track, and the service on
+         *  the other end of the AI link does the talking. */
+        ASSISTANT,
         /** The user took the call over; a normal call from here on. */
         TALKING,
     }
@@ -180,6 +184,18 @@ final class AnswerMachine {
         void playGreeting(boolean checkTone, int path);
 
         void stopGreeting();
+
+        /** Open the assistant's track for the call that took [path], and
+         *  tell the AI link the call is the assistant's. */
+        void startAssistant(int path);
+
+        /** The assistant's call is over, or the user took it: stop the track
+         *  and tell the AI link. Safe when none was started. */
+        void stopAssistant();
+
+        /** The call moved: the assistant's track is stopped and opened again
+         *  on the route for [path]. */
+        void restartAssistant(int path);
 
         /** The greeting is making a sound about now, and this phone's own
          *  side of the recording - muted - is not silent: a phone that mixes
@@ -294,6 +310,9 @@ final class AnswerMachine {
     private volatile State state = State.IDLE;
     private boolean enabled;
     private long maxMessageMs = 60_000L;
+    /** The AI receptionist takes this call, not the greeting and message: the
+     *  app's AnswerSettings.ai. */
+    private boolean assistant;
 
     private long ringAt;
     /** When a ring last ended without this machine answering it: the user
@@ -398,8 +417,13 @@ final class AnswerMachine {
      *  disarms a waiting answer, and nothing else: a message under way is
      *  left to finish. */
     void configure(boolean on, long maxMessageMs) {
+        configure(on, maxMessageMs, false);
+    }
+
+    void configure(boolean on, long maxMessageMs, boolean assistant) {
         this.enabled = on;
         this.maxMessageMs = maxMessageMs;
+        this.assistant = assistant;
         if (!on) {
             goAheadAt = 0;
             if (state == State.ARMED && !testCall) {
@@ -528,9 +552,11 @@ final class AnswerMachine {
             effects.log("answer: emergency callback mode - not answering");
             return;
         }
-        if (!effects.greetingPresent()) {
+        if (!assistant && !effects.greetingPresent()) {
             // Answered with nothing to say, the caller is hung up on and
             // loses the carrier's voicemail too. A test plays the same file.
+            // The assistant has no file: its first line is spoken by the
+            // service, so it needs none.
             state = State.IDLE;
             effects.log("answer: no greeting here - not answering");
             return;
@@ -590,7 +616,27 @@ final class AnswerMachine {
         }
     }
 
+    /** The longest a call may last with the assistant, when the app sends no
+     *  limit: the plan's 2 minutes, and the recorder's own backstop if the
+     *  service stops answering. */
+    static final long AI_MAX_MS = 120_000L;
+
     private void startGreeting(int path) {
+        if (testCall) {
+            // The diagnostics test is the route's check, in AI mode too: it
+            // plays the check tone and the test sound, and keeps a message for
+            // the test's readings. The assistant does not take this call, and
+            // no greeting file is needed for it.
+            state = State.GREETING;
+            play(true, path);
+            effects.messageStarted();
+            muteWatch = effects.schedule(this::watchMute, MUTE_WATCH_MS);
+            return;
+        }
+        if (assistant) {
+            startAssistant(path);
+            return;
+        }
         if (recordingLost && !ending) {
             // Its recording stopped as the call was answered: no message
             // could be kept, so none is asked for (review, 2026-11-18). Not
@@ -606,6 +652,22 @@ final class AnswerMachine {
         play(testCall, path);
         effects.messageStarted();
         muteWatch = effects.schedule(this::watchMute, MUTE_WATCH_MS);
+    }
+
+    /** The call is the assistant's: its track opens on [path], the microphone
+     *  stays muted, and the call's own limit is the backstop. Nothing is
+     *  played from a file and no message is taken by this machine; the
+     *  service hears the caller and speaks through the track. */
+    private void startAssistant(int path) {
+        state = State.ASSISTANT;
+        greetingPath = path;
+        effects.startAssistant(path);
+        long limit = maxMessageMs > 0 ? maxMessageMs : AI_MAX_MS;
+        effects.log("answer: the assistant takes the call on the "
+                + (path == Checks.PATH_MIXER ? "mixer" : "voice") + " path; up to "
+                + limit / 1000 + " s");
+        muteWatch = effects.schedule(this::watchMute, MUTE_WATCH_MS);
+        messageLimit = effects.schedule(this::limitReached, limit);
     }
 
     /** The greeting, on the route for [path], the way the call's audio
@@ -686,6 +748,16 @@ final class AnswerMachine {
             // Whether a greeting waited for it, the log tells.
             effects.log("answer: Android applied the call's mode: " + (path == Checks.PATH_MIXER ? "the mixer"
                     : path == Checks.PATH_VOICE ? "its voice path" : "neither way"));
+        }
+        if (state == State.ASSISTANT && !ending && path != Checks.PATH_NONE && path != greetingPath) {
+            // The assistant's track is made for the mode applied, as the
+            // greeting's is: a call that moves has its track opened again on
+            // the route its new path takes, before it speaks another line.
+            greetingPath = path;
+            effects.restartAssistant(path);
+            effects.log("answer: the call moved; the assistant's track restarts on the "
+                    + (path == Checks.PATH_MIXER ? "mixer" : "voice") + " path");
+            holdMessageMute();
         }
         if (!ending && over && path != Checks.PATH_NONE
                 && (state == State.MESSAGE || (state == State.GREETING && path != greetingPath))) {
@@ -921,18 +993,21 @@ final class AnswerMachine {
      *  the call screen then is undone with it; Talk to them takes the call. */
     private void holdMute() {
         audioPoll = null;
-        if ((state != State.GREETING && state != State.MESSAGE) || ending) {
+        if ((state != State.GREETING && state != State.MESSAGE && state != State.ASSISTANT) || ending) {
             return;
         }
         if (mutedAt > 0 && !effects.muted() && effects.callAudioUp() && !appsCall(effects.callPath())) {
             effects.setMuted(true);
             if (!effects.muted()) {
-                if (state == State.MESSAGE) {
-                    // What the caller has said is a message: kept, as at
-                    // the longest message's end (limitReached) - not dropped
-                    // as a call whose greeting could not play.
+                if (state == State.MESSAGE || state == State.ASSISTANT) {
+                    // What the caller has said is a message, or the call is
+                    // the assistant's: ended as at the limit, not dropped as
+                    // a call whose greeting could not play.
                     effects.log("answer: the microphone did not mute again after the call moved; hanging up");
                     ending = true;
+                    if (state == State.ASSISTANT) {
+                        effects.stopAssistant();
+                    }
                     effects.hangUp();
                 } else {
                     failAndHangUp("the microphone did not mute");
@@ -1029,7 +1104,9 @@ final class AnswerMachine {
      *  message running on into a dead recording until the silence watch
      *  hung up on a caller still talking (review round 10). */
     private void actOnLostRecording() {
-        if (!recordingLost || (state != State.GREETING && state != State.MESSAGE) || ending || over) {
+        if (!recordingLost
+                || (state != State.GREETING && state != State.MESSAGE && state != State.ASSISTANT)
+                || ending || over) {
             return;
         }
         if (unmutedSeen || (mutedAt > 0 && !effects.muted())) {
@@ -1048,12 +1125,17 @@ final class AnswerMachine {
             effects.log("answer: longest message reached, hanging up");
             ending = true;
             effects.hangUp();
+        } else if (state == State.ASSISTANT) {
+            effects.log("answer: the assistant's longest call reached, hanging up");
+            ending = true;
+            effects.stopAssistant();
+            effects.hangUp();
         }
     }
 
     private void watchMute() {
         muteWatch = null;
-        if ((state != State.GREETING && state != State.MESSAGE) || ending) {
+        if ((state != State.GREETING && state != State.MESSAGE && state != State.ASSISTANT) || ending) {
             return;
         }
         if (!over && mutedAt > 0 && !effects.muted() && effects.callAudioUp()) {
@@ -1081,8 +1163,12 @@ final class AnswerMachine {
     /** Talk to them: the greeting stops, the microphone opens, the limit
      *  goes, and the call carries on as a normal call. */
     void talk() {
-        if (state != State.GREETING && state != State.MESSAGE && state != State.ANSWERING) {
+        if (state != State.GREETING && state != State.MESSAGE && state != State.ANSWERING
+                && state != State.ASSISTANT) {
             return;
+        }
+        if (state == State.ASSISTANT) {
+            effects.stopAssistant();
         }
         effects.stopGreeting();
         cancelTimers();
@@ -1106,6 +1192,9 @@ final class AnswerMachine {
     void hangUpNow() {
         if (takingMessage()) {
             ending = true;
+            if (state == State.ASSISTANT) {
+                effects.stopAssistant();
+            }
             effects.hangUp();
         }
     }
@@ -1260,6 +1349,9 @@ final class AnswerMachine {
         cancelTimers();
         Outcome outcome = null;
         if (answered) {
+            if (state == State.ASSISTANT) {
+                effects.stopAssistant();
+            }
             effects.stopGreeting();
             if (mutedAt > 0 && !talked) {
                 effects.setMuted(false);
@@ -1280,7 +1372,8 @@ final class AnswerMachine {
     /** Whether a message is being taken: answered, and not taken over. What
      *  the recording of the call is, until then (Calls). */
     boolean takingMessage() {
-        return state == State.ANSWERING || state == State.GREETING || state == State.MESSAGE;
+        return state == State.ANSWERING || state == State.GREETING || state == State.MESSAGE
+                || state == State.ASSISTANT;
     }
 
     /** A greeting was cut off and waits to play again (cut, pollMoved): the

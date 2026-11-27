@@ -31,6 +31,20 @@ final class Wire {
     static final int COMMAND_RECORD = 'R';
 
     /**
+     * THE AI LINK (lowercase, so it cannot be one of the commands above):
+     * the on-phone assistant's one socket, opened with no handshake because
+     * its caller is checked by uid instead - only the shell and the Termux
+     * app may open it (LoopbackServer.fromAi). Its frames are AiFrames':
+     * the call's PCM out, the assistant's PCM in, and control lines.
+     */
+    static final int COMMAND_AI = 'a';
+
+    /** The app's live monitor: the same captured PCM as the AI link gets,
+     *  and nothing it can say. After the handshake, so only the app or the
+     *  shell can listen. */
+    static final int COMMAND_MONITOR = 'm';
+
+    /**
      * THE DAEMON RECORDS TO A FILE; THE APP COLLECTS IT AFTERWARDS.
      *
      * The app used to read the live audio over this socket and mux it as the

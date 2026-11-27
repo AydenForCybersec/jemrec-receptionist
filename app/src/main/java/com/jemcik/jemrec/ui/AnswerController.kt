@@ -85,7 +85,8 @@ data class AnswerUi(
             stageOne == null -> "Run the checks below first"
             !stageOne.possible -> stageOne.problem
             !callTracking -> "Needs exact call tracking, in Settings"
-            greetingSeconds == null -> "Record a greeting first"
+            // No greeting is needed in this fork: the assistant speaks its own
+            // first line, and the recorded greeting is no longer played.
             else -> null
         }
 

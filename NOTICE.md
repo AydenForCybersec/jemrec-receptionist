@@ -1,6 +1,9 @@
 # Third-party notices
 
-JemRec is licensed under the Apache License, Version 2.0.
+This repository is a fork of JemRec (<https://github.com/jemcik/JemRec>),
+licensed under the Apache License, Version 2.0. The upstream code and
+documentation remain copyright their authors. Changes in this fork are under
+the same license.
 
 ## libadb-android
 

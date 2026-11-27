@@ -350,7 +350,7 @@ final class Commands {
                 if (made != null && main != null) {
                     main.post(() -> {
                         AnswerSettings now = Answering.answerSettings;
-                        made.configure(now.on, now.maxMessageSeconds * 1000L);
+                        made.configure(now.on, now.maxMessageSeconds * 1000L, now.ai);
                     });
                 }
             } else {
@@ -359,7 +359,7 @@ final class Commands {
                 // "answer=", changed while the machine stayed as it was.
                 Answering.onMain(() -> {
                     Answering.answerSettings = settings;
-                    machine.configure(settings.on, settings.maxMessageSeconds * 1000L);
+                    machine.configure(settings.on, settings.maxMessageSeconds * 1000L, settings.ai);
                     return null;
                 });
             }
@@ -418,6 +418,12 @@ final class Commands {
         }
         if (command == Wire.COMMAND_DIAGNOSE) {
             diagnose(client);
+            return;
+        }
+        if (command == Wire.COMMAND_MONITOR) {
+            // The app's live monitor: caller PCM only, until it disconnects.
+            // Authenticated by the handshake above, as every app command is.
+            AiLink.serveMonitor(client);
             return;
         }
         Ln.w("session: unknown command " + command + ", closing");
@@ -564,9 +570,11 @@ final class Commands {
                     reply(client, Wire.test("emergency"));
                     break;
                 }
-                // The test plays the greeting this process has: without one,
-                // a caller is answered and hung up on, and the route blamed.
-                if (!Greeting.present()) {
+                // A message test plays the greeting this process has:
+                // without one, a caller is answered and hung up on, and the
+                // route blamed. The AI test needs none: it plays its check
+                // tone and beep, and the assistant speaks its own line.
+                if (!Answering.answerSettings.ai && !Greeting.present()) {
                     reply(client, Wire.test("no-greeting"));
                     break;
                 }

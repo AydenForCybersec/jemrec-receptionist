@@ -33,7 +33,7 @@ import java.security.SecureRandom
  */
 object DeepLink {
 
-    enum class Kind { PLAY, SHARE, SELF_TEST, PAIR_AGAIN, ALLOW_WIFI, BACKGROUND_SETTINGS, BATTERY_SETTINGS, HOME, CALLS, SETTINGS, CHOOSE_FOLDER, USB_DEFAULT_NONE }
+    enum class Kind { PLAY, SHARE, SELF_TEST, PAIR_AGAIN, ALLOW_WIFI, BACKGROUND_SETTINGS, BATTERY_SETTINGS, HOME, CALLS, SETTINGS, CHOOSE_FOLDER, USB_DEFAULT_NONE, AI_MONITOR }
 
     data class Link(val kind: Kind, val name: String?)
 
@@ -78,7 +78,9 @@ object DeepLink {
         intent?.action == ACTION &&
             runCatching { Kind.valueOf(intent.getStringExtra(EXTRA_KIND) ?: "") }.getOrNull() !in OPENINGS
 
-    private val OPENINGS = setOf(Kind.HOME, Kind.CALLS, Kind.SETTINGS, Kind.CHOOSE_FOLDER, Kind.USB_DEFAULT_NONE)
+    private val OPENINGS = setOf(
+        Kind.HOME, Kind.CALLS, Kind.SETTINGS, Kind.CHOOSE_FOLDER, Kind.USB_DEFAULT_NONE, Kind.AI_MONITOR,
+    )
 
     /** Called by the activity with every intent it is started or re-entered with. */
     fun offer(context: Context, intent: Intent?) {

@@ -76,7 +76,7 @@ final class CallWatch extends TelephonyCallback
             Platform.telecom = telecomManager;
             Answering.answerMachine = new AnswerMachine(new AnswerEffects(handler, audio, telecomManager, telephony));
             AnswerSettings settings = Answering.answerSettings;
-            Answering.answerMachine.configure(settings.on, settings.maxMessageSeconds * 1000L);
+            Answering.answerMachine.configure(settings.on, settings.maxMessageSeconds * 1000L, settings.ai);
             Ln.i("answer: " + (settings.on
                     ? "on, " + (settings.maxMessageSeconds == AnswerSettings.NO_LIMIT ? "no limit" : "up to " + settings.maxMessageSeconds + " s")
                         + ", route " + settings.route
