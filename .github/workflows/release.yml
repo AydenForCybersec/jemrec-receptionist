@@ -17,8 +17,12 @@
 #   JEMREC_KEYSTORE_PASSWORD
 #   JEMREC_KEY_ALIAS
 #   JEMREC_KEY_PASSWORD
+# Turning releases on at all is the repository variable ENABLE_RELEASES=true.
+# The optional variable JEMREC_CERT_SHA256 pins the certificate every release
+# must carry. Without it the first run derives the digest from the keystore,
+# prints it, and warns that it should be pinned.
 # The keystore itself never enters the repo - see .gitignore, which has refused
-# signing material since before any existed.
+# signing material since before any existed. docs/GITHUB.md has the steps.
 name: release
 
 on:
@@ -272,10 +276,12 @@ jobs:
       # The gate. app/build.gradle.kts deliberately leaves the APK UNSIGNED
       # rather than falling back to a debug key, and AGP names an unsigned build
       # app-release-unsigned.apk - so a missing or wrong secret stops the release
-      # here instead of publishing something nobody can upgrade to. The
-      # certificate digest is printed so a change of signing identity is visible
-      # in the log rather than discovered on a phone.
-      - name: Refuse to publish an APK that is not signed
+      # here instead of publishing something nobody can upgrade to.
+      - name: Refuse an unsigned, debuggable, or differently signed APK
+        env:
+          JEMREC_KEYSTORE_PASSWORD: ${{ secrets.JEMREC_KEYSTORE_PASSWORD }}
+          JEMREC_KEY_ALIAS: ${{ secrets.JEMREC_KEY_ALIAS }}
+          JEMREC_CERT_SHA256: ${{ vars.JEMREC_CERT_SHA256 }}
         run: |
           APK=app/build/outputs/apk/release/app-release.apk
           if [ ! -f "$APK" ]; then
@@ -283,16 +289,44 @@ jobs:
             ls -la app/build/outputs/apk/release/ || true
             exit 1
           fi
+
+          # A release a debugger can attach to is not a release. AGP's release
+          # default is already false; this proves it on the finished file, where
+          # a manifest merge could have put it back.
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          if "$AAPT2" dump badging "$APK" | grep -q 'application-debuggable'; then
+            echo "::error::$APK is debuggable. app/build.gradle.kts sets isDebuggable = false for release."
+            exit 1
+          fi
+
           APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           CERTS=$("$APKSIGNER" verify --print-certs "$APK")
           echo "$CERTS"
-          # And signed by the key every release is: the digest README, the
-          # site and SETUP.md give users to check against. Signed by another,
-          # it would install over nothing already installed, and F-Droid,
-          # which checks the developer's signature, would refuse it.
-          EXPECTED=50aeab3630f0198ea3845db51413b1ad29582f78240fa2df6fe55ba8537afdf8
-          if ! grep -qi "certificate SHA-256 digest: $EXPECTED" <<<"$CERTS"; then
-            echo "::error::$APK is not signed with JemRec's key (SHA-256 $EXPECTED). Is the keystore secret the right one?"
+
+          # The signing identity every release must keep: signed by another key,
+          # an APK installs over nothing already installed, and F-Droid would
+          # refuse it. Normalised on both sides, because keytool writes AB:CD and
+          # apksigner writes abcd.
+          PINNED=$(printf '%s' "$JEMREC_CERT_SHA256" | tr -d ': \n' | tr 'A-F' 'a-f')
+          if [ -z "$PINNED" ]; then
+            # Nothing pinned yet: read the digest out of the keystore this run
+            # signed with, so the first release works, and say what to pin.
+            PINNED=$(keytool -list -v \
+              -keystore "$JEMREC_KEYSTORE" \
+              -alias "${JEMREC_KEY_ALIAS:-jemrec}" \
+              -storepass "$JEMREC_KEYSTORE_PASSWORD" \
+              | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+            if [ -z "$PINNED" ]; then
+              echo "::error::Could not read the certificate from the keystore with alias ${JEMREC_KEY_ALIAS:-jemrec}. Check JEMREC_KEY_ALIAS and JEMREC_KEYSTORE_PASSWORD."
+              exit 1
+            fi
+            echo "::warning::JEMREC_CERT_SHA256 is not set. This APK is signed by $PINNED. Set the repository variable JEMREC_CERT_SHA256 to that value, so a later release signed by another key is refused."
+          else
+            echo "Pinned signing certificate: $PINNED"
+          fi
+
+          if ! grep -qi "certificate SHA-256 digest: $PINNED" <<<"$CERTS"; then
+            echo "::error::$APK is not signed with the pinned certificate (SHA-256 $PINNED). Is JEMREC_KEYSTORE_BASE64 the right keystore, or JEMREC_CERT_SHA256 the right digest?"
             exit 1
           fi
           echo "APK=$APK" >> "$GITHUB_ENV"

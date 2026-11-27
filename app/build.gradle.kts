@@ -53,20 +53,55 @@ android {
     }
 
     // Release signing comes from the environment, never from the repo.
-    val keystorePath: String? = System.getenv("JEMREC_KEYSTORE")
-    val signingReady = !keystorePath.isNullOrBlank() && file(keystorePath).exists()
+    //
+    // JEMREC_KEYSTORE is the keystore file, an absolute path in CI where the
+    // workflow decodes it into RUNNER_TEMP. The alias defaults to "jemrec", the
+    // one the release instructions use. With none of these set the release APK
+    // is left UNSIGNED on purpose: that unsigned build is what the
+    // reproducibility check compares (CI prints its digest), so a clone with no
+    // key still builds.
+    //
+    // With the keystore set but no password, or a path that is not a file, the
+    // build fails here instead of at the end, where AGP would report it as a
+    // signing error after the whole release had been compiled.
+    val keystorePath: String? = System.getenv("JEMREC_KEYSTORE")?.takeUnless { it.isBlank() }
+    val keystoreFile = keystorePath?.let { file(it) }
+    val envStorePassword: String? =
+        System.getenv("JEMREC_KEYSTORE_PASSWORD")?.takeUnless { it.isBlank() }
+    val envKeyAlias: String =
+        System.getenv("JEMREC_KEY_ALIAS")?.takeUnless { it.isBlank() } ?: "jemrec"
+    val envKeyPassword: String? =
+        System.getenv("JEMREC_KEY_PASSWORD")?.takeUnless { it.isBlank() }
+
+    if (keystoreFile != null) {
+        require(keystoreFile.isFile) {
+            "JEMREC_KEYSTORE points at $keystoreFile, which is not a file. Give an absolute path."
+        }
+        require(envStorePassword != null) {
+            "JEMREC_KEYSTORE is set but JEMREC_KEYSTORE_PASSWORD is empty."
+        }
+        require(envKeyPassword != null) {
+            "JEMREC_KEYSTORE is set but JEMREC_KEY_PASSWORD is empty."
+        }
+    }
+    val signingReady = keystoreFile != null
 
     signingConfigs {
         if (signingReady) create("release") {
-            storeFile = file(keystorePath!!)
-            storePassword = System.getenv("JEMREC_KEYSTORE_PASSWORD")
-            keyAlias = System.getenv("JEMREC_KEY_ALIAS") ?: "jemrec"
-            keyPassword = System.getenv("JEMREC_KEY_PASSWORD")
+            storeFile = keystoreFile
+            storePassword = envStorePassword
+            keyAlias = envKeyAlias
+            keyPassword = envKeyPassword
         }
     }
 
     buildTypes {
         release {
+            // Never debuggable, said rather than left to the default: a release
+            // a debugger can attach to is not a release. The workflow checks
+            // this on the finished APK as well, beside its signing certificate.
+            isDebuggable = false
+
             // R8, on. Measured on 0.4 before this: 38 MB on disk, of which
             // 28.5 MB was dex and 0.2 MB of that was this app - the rest was
             // libraries shipped whole, and 12.8 MB was nothing but the names

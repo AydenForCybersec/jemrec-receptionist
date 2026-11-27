@@ -62,15 +62,133 @@ On the repository's GitHub page:
   longer sends people to the upstream discussions.
 - Under **Actions → General**, leave the default read permissions. The build
   and CodeQL workflows are safe for a public repository.
-- Releases are disabled by default. The upstream release workflow is gated by
-  a repository variable named `ENABLE_RELEASES`. Leave it unset while you are
-  testing. If you later want signed GitHub releases, set that variable to
-  `true` and add the four signing secrets described in
-  `.github/workflows/release.yml`. Do not reuse JemRec's signing key.
+- Releases are off until you turn them on. The release workflow is gated by
+  the repository variable `ENABLE_RELEASES`; leave it unset while you are
+  testing. [Signed releases](#signed-releases) has the keystore and secret
+  steps. Do not reuse JemRec's signing key.
 
 The upstream `fastlane/` metadata and F-Droid links are kept for reference.
 They are not a submission to F-Droid. Do not submit this fork under the
 official JemRec package name.
+
+## Signed releases
+
+Every release must be signed by one key, kept for the life of the app. Android
+refuses an APK signed by a different certificate, so a new key means every
+user uninstalls, and the app loses its pairing and its settings. JemRec's key
+is not in this repository. Make your own; do not reuse the upstream one.
+
+### 1. Make the key once
+
+On a computer with JDK 21, outside the repository:
+
+```bash
+keytool -genkeypair \
+  -keystore jemrec-release.jks \
+  -alias jemrec \
+  -storetype PKCS12 \
+  -keyalg RSA -keysize 4096 -validity 10000 \
+  -dname "CN=JemRec Receptionist, O=AydenForCybersec"
+```
+
+It asks for a store password and a key password. Use the same long random
+password for both: PKCS12 does not keep them apart. Keep the password in a
+password manager, and back up the `.jks` somewhere you will still have in ten
+years. If it is lost, the next release cannot install over the last one.
+
+Print the certificate digest now. Later releases are checked against it, and
+it is public:
+
+```bash
+keytool -list -v -keystore jemrec-release.jks -alias jemrec \
+  | sed -n 's/^[[:space:]]*SHA256: //p'
+```
+
+### 2. Put it in GitHub
+
+The keystore goes into a secret as base64. The file itself never enters Git:
+`.gitignore` refuses `*.jks` and `*.keystore`.
+
+Linux:
+
+```bash
+base64 -w0 jemrec-release.jks > jemrec-release.jks.b64
+```
+
+macOS:
+
+```bash
+base64 -i jemrec-release.jks | tr -d '\n' > jemrec-release.jks.b64
+```
+
+On the repository page, **Settings → Secrets and variables → Actions**, with
+**Secrets** selected for the first four rows and **Variables** for the last
+two:
+
+| Kind | Name | Value |
+| --- | --- | --- |
+| Secret | `JEMREC_KEYSTORE_BASE64` | the one line in `jemrec-release.jks.b64` |
+| Secret | `JEMREC_KEYSTORE_PASSWORD` | the store password |
+| Secret | `JEMREC_KEY_ALIAS` | `jemrec` |
+| Secret | `JEMREC_KEY_PASSWORD` | the key password, the same one |
+| Variable | `JEMREC_CERT_SHA256` | the digest from step 1, without colons |
+| Variable | `ENABLE_RELEASES` | `true` |
+
+Then delete the encoded copy:
+
+```bash
+rm jemrec-release.jks.b64
+```
+
+`JEMREC_CERT_SHA256` may be left unset for the very first run: the workflow
+then reads the digest out of the keystore, publishes, and warns with the value
+to add. Set it before the second release. From then on an APK signed by
+another key stops the workflow instead of being published.
+
+### 3. Build it on your machine first
+
+The build CI runs, with the key in the environment, writes
+`app/build/outputs/apk/release/app-release.apk`. With none of the variables it
+writes `app-release-unsigned.apk` instead, which is what the reproducible
+build comparison uses.
+
+```bash
+export JEMREC_KEYSTORE="$PWD/../jemrec-release.jks"   # absolute path
+export JEMREC_KEYSTORE_PASSWORD='...'
+export JEMREC_KEY_ALIAS=jemrec
+export JEMREC_KEY_PASSWORD='...'
+
+./gradlew :app:assembleRelease
+
+"$ANDROID_HOME"/build-tools/36.0.0/apksigner verify --print-certs \
+  app/build/outputs/apk/release/app-release.apk
+```
+
+The digest it prints must equal `JEMREC_CERT_SHA256`, and `aapt2 dump badging`
+on the APK must not print `application-debuggable`.
+
+### 4. Run the release
+
+A merge to `main` that changes `jemrecVersionName` and `jemrecVersionCode` in
+`gradle.properties` is released from that merge, provided
+`fastlane/metadata/android/en-US/changelogs/<versionCode>.txt` exists. The
+workflow makes the tag itself.
+
+A tag pushed by hand also works, if it is on `main` and matches
+`gradle.properties`:
+
+```bash
+VERSION=$(sed -n 's/^jemrecVersionName=//p' gradle.properties)
+git tag "$VERSION"
+git push origin "$VERSION"
+```
+
+Either way the workflow first waits for `build.yml` on the same commit to
+pass, then builds, checks that the APK is signed by the pinned key and is not
+debuggable, and attaches `jemrec-<version>.apk` to the release.
+
+The debug preview APK on the `preview-arm64-1.9` tag is signed by a debug key.
+A release-signed APK cannot install over it, so uninstall that preview first.
 
 ## 3. Build from a clean clone
 

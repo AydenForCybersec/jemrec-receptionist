@@ -798,8 +798,8 @@ changes that file to a version not yet released, the release workflow:
   main's runs are never cancelled by a later merge, so that run is there to
   wait for;
 - builds a release APK signed with the project key held in repository secrets;
-- refuses to publish anything `apksigner` cannot verify, or signed by any
-  other key than the one whose SHA-256 the README and the site publish;
+- refuses to publish anything `apksigner` cannot verify, that is debuggable, or
+  signed by any key other than the certificate digest the repository pins;
 - tags that same merge commit and attaches `jemrec-0.9.apk` to the release.
 
 F-Droid takes it from there without being asked: its update checker reads
